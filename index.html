@@ -1040,7 +1040,7 @@
         const payLink = (no, total) => `${CONFIG.LIFF_URL}?pay=${encodeURIComponent(no)}&amt=${Math.round(total)}`;
         // opens the photo picker inside the chat it is tapped from (works only from a LINE chat)
         const SLIP_PICKER_URL = 'https://line.me/R/nv/cameraRoll/single';
-        function payFlex(no, total) {
+        function payFlex(no, total, withSlip = true) {
             const link = payLink(no, total);
             const stepRow = (n, text) => ({ type: 'box', layout: 'horizontal', spacing: 'sm', contents: [
                 { type: 'text', text: n, size: 'sm', weight: 'bold', color: '#FFFFFF', flex: 0, align: 'center', gravity: 'center' },
@@ -1053,7 +1053,7 @@
                     header: { type: 'box', layout: 'vertical', spacing: 'xs', backgroundColor: '#D32F2F', paddingAll: '16px', contents: [
                         { type: 'text', text: '⚠️ ออเดอร์ยังไม่เสร็จ', weight: 'bold', size: 'lg', color: '#FFFFFF' },
                         stepRow('1.', 'กดปุ่มเขียว โอนเงินด้วย QR'),
-                        stepRow('2.', 'กดปุ่มส้ม เลือกรูปสลิปแล้วส่ง')
+                        stepRow('2.', withSlip ? 'กดปุ่มส้ม เลือกรูปสลิปแล้วส่ง' : 'ส่งรูปสลิปในแชตนี้ (กดไอคอนรูปภาพ)')
                     ]},
                     body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: [
                         { type: 'text', text: 'ออเดอร์ #' + no, size: 'sm', color: '#6B7280' },
@@ -1065,24 +1065,21 @@
                     ]},
                     footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: [
                         { type: 'button', style: 'primary', color: '#06C755', height: 'md',
-                          action: { type: 'uri', label: '1️⃣ 💳 โอนเงิน (ดู QR)', uri: link } },
-                        { type: 'button', style: 'primary', color: '#F57C00', height: 'md',
-                          action: { type: 'uri', label: '2️⃣ 📎 แนบสลิป ส่งในแชตนี้', uri: SLIP_PICKER_URL } }
-                    ]}
+                          action: { type: 'uri', label: '1️⃣ 💳 โอนเงิน (ดู QR)', uri: link } }
+                    ].concat(withSlip ? [{ type: 'button', style: 'primary', color: '#F57C00', height: 'md',
+                          action: { type: 'uri', label: '2️⃣ 📎 แนบสลิป ส่งในแชตนี้', uri: SLIP_PICKER_URL } }] : [])}
                 }
             };
         }
         // fallback card that every LINE version accepts (template, label max 20 chars)
-        function payTemplate(no, total) {
+        function payTemplate(no, total, withSlip = true) {
             return {
                 type: 'template', altText: `⚠️ ยังไม่เสร็จ! โอนเงิน ${baht(total)} แล้วแนบสลิป`,
                 template: {
                     type: 'buttons', title: `⚠️ ยอดโอน ${baht(total)}`,
                     text: `#${no} ยังไม่เสร็จ\n1) โอนเงิน 2) แนบสลิป`,
-                    actions: [
-                        { type: 'uri', label: '1) โอนเงิน ดู QR', uri: payLink(no, total) },
-                        { type: 'uri', label: '2) แนบสลิป', uri: SLIP_PICKER_URL }
-                    ]
+                    actions: [{ type: 'uri', label: '1) โอนเงิน ดู QR', uri: payLink(no, total) }]
+                        .concat(withSlip ? [{ type: 'uri', label: '2) แนบสลิป', uri: SLIP_PICKER_URL }] : [])
                 }
             };
         }
@@ -1096,12 +1093,19 @@
         const errText = e => (e && (e.code ? e.code + ' ' : '') + (e.message || '')) || String(e);
         // send the button card as its own message; try the rich card first, then the simple one
         async function sendPayButtons(no, total) {
-            try { await liff.sendMessages([payFlex(no, total)]); return; }
-            catch (e1) {
-                sendDebug = 'flex: ' + errText(e1);
-                try { await liff.sendMessages([payTemplate(no, total)]); }
-                catch (e2) { sendDebug += ' | template: ' + errText(e2); }
+            // try the richest card first, then simpler ones, until LINE accepts one
+            const tries = [
+                ['flex2', () => payFlex(no, total, true)],
+                ['flex1', () => payFlex(no, total, false)],
+                ['tpl2', () => payTemplate(no, total, true)],
+                ['tpl1', () => payTemplate(no, total, false)]
+            ];
+            const errs = [];
+            for (const [name, make] of tries) {
+                try { await liff.sendMessages([make()]); sendDebug = errs.length ? 'ok ' + name + ' after ' + errs.join(' | ') : ''; return; }
+                catch (e) { errs.push(name + ': ' + errText(e)); }
             }
+            sendDebug = errs.join(' | ');
         }
 
         // read ?pay=...&amt=... (LIFF may wrap it inside liff.state)
