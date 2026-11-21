@@ -1117,7 +1117,8 @@
             }
             try { history.replaceState(null, '', location.pathname); } catch (e) {}
             renderLastOrderBar();
-            openLastOrder();
+            // มาจากปุ่ม "โอนเงิน" ในแชต → โชว์ QR ทันที (ถ้าแนบสลิปแล้ว โชว์สถานะแทน)
+            if (o.slip) openLastOrder(); else lastOrderShowQR();
         }
 
         // ---------- Google Sheets (optional) ----------
