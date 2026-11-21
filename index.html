@@ -281,6 +281,7 @@
                     <a id="btn-open-chat-plain" href="#" target="_blank" rel="noopener" onclick="orderSentManually()" class="mt-2 block w-full border border-brand-green text-brand-green py-2.5 rounded-xl font-bold text-center">เปิดแชตร้าน แล้ววางข้อความ</a>
                 </details>
                 <button type="button" onclick="closeResultModal()" class="w-full py-2 text-xs text-gray-400">กลับไปแก้ไขออเดอร์</button>
+                <p id="liff-debug" class="text-[10px] text-gray-400 break-all text-center"></p>
             </div>
 
             <!-- Order is with the shop, marked "waiting for slip": pay + attach slip -->
@@ -463,7 +464,7 @@
                     }
                 })
                 .then(() => { handleDeepLink(); redirectToLiffIfNeeded(); })
-                .catch(err => { console.error('LIFF init error:', err); redirectToLiffIfNeeded(); });
+                .catch(err => { console.error('LIFF init error:', err); if (!liffReady) liffDebug = 'init: ' + errText(err); redirectToLiffIfNeeded(); });
         }
 
         // Opened inside LINE but via the plain web link (e.g. amarmala.netlify.app pasted in chat):
@@ -981,6 +982,7 @@
         // outside LIFF: only the "send order" button; QR is hidden until they tap it
         function openSendStep() {
             $('send-no').textContent = '#' + lastOrderNo;
+            $('liff-debug').textContent = 'รหัสสำหรับร้าน: ' + liffWhy() + ' · ' + location.host + location.pathname;
             $('order-text').textContent = lastOrderText;
             $('btn-open-line').href = lineChatUrl(lastOrderText);
             $('btn-open-chat-plain').href = CONFIG.LINE_OA_URL;
@@ -1084,7 +1086,13 @@
                 }
             };
         }
-        let sendDebug = '';
+        let sendDebug = '', liffDebug = '';
+        function liffWhy() {
+            if (liffDebug) return liffDebug;
+            if (typeof liff === 'undefined') return 'sdk not loaded';
+            if (!liffReady) return 'not ready';
+            try { return 'inClient=' + liff.isInClient() + ' ua=' + (/ Line\//i.test(navigator.userAgent) ? 'line' : 'other'); } catch (e) { return errText(e); }
+        }
         const errText = e => (e && (e.code ? e.code + ' ' : '') + (e.message || '')) || String(e);
         // send the button card as its own message; try the rich card first, then the simple one
         async function sendPayButtons(no, total) {
