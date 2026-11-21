@@ -862,7 +862,8 @@
             L.push(`🧾 รวมที่ต้องโอน: ${baht(orderTotal())}`);
             L.push(`💳 ชำระ: สแกน QR พร้อมเพย์ (ไม่มีเก็บเงินปลายทาง)`);
             L.push(`📎 สถานะ: ⏳ รอลูกค้าแนบสลิป (เริ่มทำเมื่อได้รับสลิป)`);
-            if (CONFIG.LIFF_URL) L.push(`👉 กดเพื่อโอนเงิน / แนบสลิป: ${payLink(no, orderTotal())}`);
+            if (CONFIG.LIFF_URL) L.push(`1️⃣ โอนเงิน (ดู QR): ${payLink(no, orderTotal())}`);
+            L.push(`2️⃣ แนบสลิป: https://line.me/R/nv/cameraRoll/single`);
             L.push('');
             L.push(`👤 ผู้รับ: ${c.name}`);
             L.push(`📞 โทร: ${c.phone}`);
@@ -1031,20 +1032,37 @@
         // ---------- Link back from the LINE chat to pay / attach slip ----------
         const ORDER_NO_RE = /^[A-Z]{2}\d{6}-\d{4,8}$/;
         const payLink = (no, total) => `${CONFIG.LIFF_URL}?pay=${encodeURIComponent(no)}&amt=${Math.round(total)}`;
+        // opens the photo picker inside the chat it is tapped from (works only from a LINE chat)
+        const SLIP_PICKER_URL = 'https://line.me/R/nv/cameraRoll/single';
         function payFlex(no, total) {
+            const link = payLink(no, total);
+            const stepRow = (n, text) => ({ type: 'box', layout: 'horizontal', spacing: 'sm', contents: [
+                { type: 'text', text: n, size: 'sm', weight: 'bold', color: '#FFFFFF', flex: 0, align: 'center', gravity: 'center',
+                  offsetTop: '1px' },
+                { type: 'text', text, size: 'sm', color: '#FFFFFF', wrap: true }
+            ]});
             return {
-                type: 'flex', altText: `ออเดอร์ #${no} รอโอนเงินและแนบสลิป`,
+                type: 'flex', altText: `⚠️ ยังไม่เสร็จ! โอนเงิน ${baht(total)} แล้วแนบสลิป`,
                 contents: {
-                    type: 'bubble', size: 'kilo',
-                    body: { type: 'box', layout: 'vertical', spacing: 'sm', contents: [
-                        { type: 'text', text: 'ออเดอร์ #' + no, weight: 'bold', size: 'md', color: '#7F0D12' },
-                        { type: 'text', text: 'ยอดโอน ' + baht(total), weight: 'bold', size: 'xl', color: '#D32F2F' },
-                        { type: 'text', text: '⏳ รอโอนเงินและแนบสลิป', size: 'sm', color: '#B45309', wrap: true },
-                        { type: 'text', text: 'ร้านจะเริ่มทำเมื่อได้รับสลิป', size: 'xs', color: '#6B7280', wrap: true }
+                    type: 'bubble', size: 'mega',
+                    header: { type: 'box', layout: 'vertical', spacing: 'xs', backgroundColor: '#D32F2F', paddingAll: '16px', contents: [
+                        { type: 'text', text: '⚠️ ออเดอร์ยังไม่เสร็จ', weight: 'bold', size: 'lg', color: '#FFFFFF' },
+                        stepRow('1.', 'กดปุ่มเขียว โอนเงินด้วย QR'),
+                        stepRow('2.', 'กดปุ่มส้ม เลือกรูปสลิปแล้วส่ง')
                     ]},
-                    footer: { type: 'box', layout: 'vertical', contents: [
-                        { type: 'button', style: 'primary', color: '#06C755', height: 'sm',
-                          action: { type: 'uri', label: 'โอนเงิน / แนบสลิป', uri: payLink(no, total) } }
+                    body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: [
+                        { type: 'text', text: 'ออเดอร์ #' + no, size: 'sm', color: '#6B7280' },
+                        { type: 'box', layout: 'baseline', contents: [
+                            { type: 'text', text: 'ยอดโอน', size: 'md', color: '#374151', flex: 0 },
+                            { type: 'text', text: baht(total), size: '3xl', weight: 'bold', color: '#D32F2F', align: 'end' }
+                        ]},
+                        { type: 'text', text: 'ร้านจะเริ่มทำอาหารเมื่อได้รับสลิปแล้วเท่านั้น', size: 'xs', color: '#B45309', wrap: true }
+                    ]},
+                    footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: [
+                        { type: 'button', style: 'primary', color: '#06C755', height: 'md',
+                          action: { type: 'uri', label: '1️⃣ 💳 โอนเงิน (ดู QR)', uri: link } },
+                        { type: 'button', style: 'primary', color: '#F57C00', height: 'md',
+                          action: { type: 'uri', label: '2️⃣ 📎 แนบสลิป ส่งในแชตนี้', uri: SLIP_PICKER_URL } }
                     ]}
                 }
             };
