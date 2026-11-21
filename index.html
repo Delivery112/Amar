@@ -434,7 +434,7 @@
             restoreCustomer();
             initLIFF();
             showOpenInLine();
-            showLastOrderOnOpen();
+            if (deepLinkParams()) handleDeepLink(); else showLastOrderOnOpen();
         });
 
         // outside the LINE app (Safari/Chrome/Facebook/IG...) on a phone: offer to reopen inside LINE
@@ -461,7 +461,7 @@
                         });
                     }
                 })
-                .then(redirectToLiffIfNeeded)
+                .then(() => { handleDeepLink(); redirectToLiffIfNeeded(); })
                 .catch(err => { console.error('LIFF init error:', err); redirectToLiffIfNeeded(); });
         }
 
@@ -474,7 +474,8 @@
             try { inClient = typeof liff !== 'undefined' && liff.isInClient(); } catch (e) {}
             if (inClient) return;
             try { if (sessionStorage.getItem('ama-liff-redirect')) return; sessionStorage.setItem('ama-liff-redirect', '1'); } catch (e) { return; }
-            location.replace(CONFIG.LIFF_URL);
+            const d = deepLinkParams();
+            location.replace(d ? payLink(d.no, d.amt) : CONFIG.LIFF_URL);
         }
 
         // remember name/phone/address on this phone for next order
@@ -861,6 +862,7 @@
             L.push(`🧾 รวมที่ต้องโอน: ${baht(orderTotal())}`);
             L.push(`💳 ชำระ: สแกน QR พร้อมเพย์ (ไม่มีเก็บเงินปลายทาง)`);
             L.push(`📎 สถานะ: ⏳ รอลูกค้าแนบสลิป (เริ่มทำเมื่อได้รับสลิป)`);
+            if (CONFIG.LIFF_URL) L.push(`👉 กดเพื่อโอนเงิน / แนบสลิป: ${payLink(no, orderTotal())}`);
             L.push('');
             L.push(`👤 ผู้รับ: ${c.name}`);
             L.push(`📞 โทร: ${c.phone}`);
@@ -902,10 +904,11 @@
             let sent = false;
             if (liffReady && liff.isInClient()) {
                 try {
-                    await liff.sendMessages([{ type: 'text', text: lastOrderText }]);
+                    await liff.sendMessages([{ type: 'text', text: lastOrderText }, payFlex(lastOrderNo, lastOrderTotal)]);
                     sent = true;
                 } catch (err) {
-                    console.warn('sendMessages failed, falling back to manual send:', err);
+                    try { await liff.sendMessages([{ type: 'text', text: lastOrderText }]); sent = true; }   // card not allowed? text only
+                    catch (err2) { console.warn('sendMessages failed, falling back to manual send:', err2); }
                 }
             }
             btn.disabled = false;
@@ -1025,6 +1028,53 @@
             if (o && !o.slip) { o.slip = true; o.slipAt = Date.now(); setLastOrder(o); }
             renderLastOrderBar();
         }
+        // ---------- Link back from the LINE chat to pay / attach slip ----------
+        const ORDER_NO_RE = /^[A-Z]{2}\d{6}-\d{4,8}$/;
+        const payLink = (no, total) => `${CONFIG.LIFF_URL}?pay=${encodeURIComponent(no)}&amt=${Math.round(total)}`;
+        function payFlex(no, total) {
+            return {
+                type: 'flex', altText: `ออเดอร์ #${no} รอโอนเงินและแนบสลิป`,
+                contents: {
+                    type: 'bubble', size: 'kilo',
+                    body: { type: 'box', layout: 'vertical', spacing: 'sm', contents: [
+                        { type: 'text', text: 'ออเดอร์ #' + no, weight: 'bold', size: 'md', color: '#7F0D12' },
+                        { type: 'text', text: 'ยอดโอน ' + baht(total), weight: 'bold', size: 'xl', color: '#D32F2F' },
+                        { type: 'text', text: '⏳ รอโอนเงินและแนบสลิป', size: 'sm', color: '#B45309', wrap: true },
+                        { type: 'text', text: 'ร้านจะเริ่มทำเมื่อได้รับสลิป', size: 'xs', color: '#6B7280', wrap: true }
+                    ]},
+                    footer: { type: 'box', layout: 'vertical', contents: [
+                        { type: 'button', style: 'primary', color: '#06C755', height: 'sm',
+                          action: { type: 'uri', label: 'โอนเงิน / แนบสลิป', uri: payLink(no, total) } }
+                    ]}
+                }
+            };
+        }
+        // read ?pay=...&amt=... (LIFF may wrap it inside liff.state)
+        function deepLinkParams() {
+            const q = new URLSearchParams(location.search);
+            let no = q.get('pay'), amt = q.get('amt');
+            const st = q.get('liff.state');
+            if (!no && st) { const s2 = new URLSearchParams(st.split('?')[1] || ''); no = s2.get('pay'); amt = s2.get('amt'); }
+            return no && ORDER_NO_RE.test(no) ? { no, amt: Math.max(0, parseInt(amt, 10) || 0) } : null;
+        }
+        let deepLinkDone = false;
+        function handleDeepLink() {
+            if (deepLinkDone) return;
+            const d = deepLinkParams();
+            if (!d) return;
+            deepLinkDone = true;
+            let o = getLastOrder();
+            if (!o || o.no !== d.no) {
+                // opened from the chat on a phone that lost the saved order: rebuild a minimal one
+                const old = (() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch (e) { return null; } })();
+                o = old && old.no === d.no ? Object.assign(old, { at: Date.now() }) : { no: d.no, total: d.amt, summary: '', text: '', at: Date.now(), slip: false };
+                setLastOrder(o);
+            }
+            try { history.replaceState(null, '', location.pathname); } catch (e) {}
+            renderLastOrderBar();
+            openLastOrder();
+        }
+
         // ---------- Google Sheets (optional) ----------
         function postOrderToSheet(c) {
             if (!CONFIG.SHEET_API_URL) return;
