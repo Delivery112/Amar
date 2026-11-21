@@ -299,6 +299,7 @@
                         <li>เลือก <b>รูปสลิปโอนเงิน</b> แล้วกด <b>ส่ง</b></li>
                     </ol>
                 </div>
+                <p id="send-debug" class="hidden text-[10px] text-gray-400 break-all"></p>
                 <a id="btn-go-chat" href="#" target="_blank" rel="noopener" onclick="return goAttachSlip(event)" class="w-full bg-brand-green text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2"><i class="fa-brands fa-line text-xl"></i> ไปแนบสลิปในแชตร้าน</a>
                 <button type="button" onclick="backToMenu()" class="w-full border border-gray-200 py-2.5 rounded-xl text-sm text-gray-600">แนบสลิปแล้ว กลับหน้าเมนู</button>
             </div>
@@ -905,12 +906,13 @@
             let sent = false;
             if (liffReady && liff.isInClient()) {
                 try {
-                    await liff.sendMessages([{ type: 'text', text: lastOrderText }, payFlex(lastOrderNo, lastOrderTotal)]);
+                    await liff.sendMessages([{ type: 'text', text: lastOrderText }]);
                     sent = true;
                 } catch (err) {
-                    try { await liff.sendMessages([{ type: 'text', text: lastOrderText }]); sent = true; }   // card not allowed? text only
-                    catch (err2) { console.warn('sendMessages failed, falling back to manual send:', err2); }
+                    console.warn('sendMessages failed, falling back to manual send:', err);
+                    sendDebug = 'text: ' + errText(err);
                 }
+                if (sent) await sendPayButtons(lastOrderNo, lastOrderTotal);
             }
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-qrcode text-xl"></i><span>ไปหน้าชำระเงิน</span>';
@@ -996,6 +998,8 @@
             $('pay-no').textContent = '#' + lastOrderNo;
             $('pay-step-badge').textContent = manual ? 'ขั้นตอนที่ 2/2 · โอนเงิน + แนบสลิป' : 'ส่งออเดอร์แล้ว · โอนเงิน + แนบสลิป';
             $('btn-go-chat').href = CONFIG.LINE_OA_URL;
+            $('send-debug').textContent = sendDebug ? 'รหัสสำหรับร้าน: ' + sendDebug : '';
+            $('send-debug').classList.toggle('hidden', !sendDebug);
             hide('step-send'); show('step-pay');
             show('result-modal');
             $('step-pay').scrollTop = 0;
@@ -1037,8 +1041,7 @@
         function payFlex(no, total) {
             const link = payLink(no, total);
             const stepRow = (n, text) => ({ type: 'box', layout: 'horizontal', spacing: 'sm', contents: [
-                { type: 'text', text: n, size: 'sm', weight: 'bold', color: '#FFFFFF', flex: 0, align: 'center', gravity: 'center',
-                  offsetTop: '1px' },
+                { type: 'text', text: n, size: 'sm', weight: 'bold', color: '#FFFFFF', flex: 0, align: 'center', gravity: 'center' },
                 { type: 'text', text, size: 'sm', color: '#FFFFFF', wrap: true }
             ]});
             return {
@@ -1067,6 +1070,32 @@
                 }
             };
         }
+        // fallback card that every LINE version accepts (template, label max 20 chars)
+        function payTemplate(no, total) {
+            return {
+                type: 'template', altText: `⚠️ ยังไม่เสร็จ! โอนเงิน ${baht(total)} แล้วแนบสลิป`,
+                template: {
+                    type: 'buttons', title: `⚠️ ยอดโอน ${baht(total)}`,
+                    text: `#${no} ยังไม่เสร็จ\n1) โอนเงิน 2) แนบสลิป`,
+                    actions: [
+                        { type: 'uri', label: '1) โอนเงิน ดู QR', uri: payLink(no, total) },
+                        { type: 'uri', label: '2) แนบสลิป', uri: SLIP_PICKER_URL }
+                    ]
+                }
+            };
+        }
+        let sendDebug = '';
+        const errText = e => (e && (e.code ? e.code + ' ' : '') + (e.message || '')) || String(e);
+        // send the button card as its own message; try the rich card first, then the simple one
+        async function sendPayButtons(no, total) {
+            try { await liff.sendMessages([payFlex(no, total)]); return; }
+            catch (e1) {
+                sendDebug = 'flex: ' + errText(e1);
+                try { await liff.sendMessages([payTemplate(no, total)]); }
+                catch (e2) { sendDebug += ' | template: ' + errText(e2); }
+            }
+        }
+
         // read ?pay=...&amt=... (LIFF may wrap it inside liff.state)
         function deepLinkParams() {
             const q = new URLSearchParams(location.search);
