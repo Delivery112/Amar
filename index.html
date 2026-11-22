@@ -2,6 +2,7 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
+    <meta name="app-version" content="2026-11-22a">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>อาม่า สุกี้หม่าล่า - สั่งเดลิเวอรี่</title>
     <script src="https://cdn.tailwindcss.com/3.4.17"></script>
@@ -438,6 +439,7 @@
             initLIFF();
             showOpenInLine();
             if (deepLinkParams()) handleDeepLink(); else showLastOrderOnOpen();
+            setTimeout(checkForUpdate, 1500);
         });
 
         // outside the LINE app (Safari/Chrome/Facebook/IG...) on a phone: offer to reopen inside LINE
@@ -480,6 +482,35 @@
             const d = deepLinkParams();
             location.replace(d ? payLink(d.no, d.amt) : CONFIG.LIFF_URL);
         }
+
+        // ---------- Auto-update: if a newer page is on the server, reload (LINE keeps old pages in memory) ----------
+        const APP_VERSION = '2026-11-22a';
+        let updateChecking = false;
+        async function checkForUpdate() {
+            if (updateChecking || !/^https?:/.test(location.protocol)) return;
+            // don't interrupt a customer in the middle of ordering
+            const busy = cart.length > 0 || ['product-modal', 'cart-modal', 'checkout-modal', 'result-modal']
+                .some(id => $(id) && !$(id).classList.contains('hidden'));
+            if (busy) return;
+            updateChecking = true;
+            try {
+                // only the first 2 KB (the version tag is near the top), bypassing every cache
+                const r = await fetch(location.pathname + '?vc=' + Date.now(), { cache: 'no-store', headers: { Range: 'bytes=0-2047' } });
+                const head = (await r.text()).slice(0, 4000);
+                const m = head.match(/name="app-version" content="([^"]+)"/);
+                if (m && m[1] !== APP_VERSION) {
+                    let tried = '';
+                    try { tried = sessionStorage.getItem('ama-reloaded-for') || ''; } catch (e) {}
+                    if (tried === m[1]) return;                       // already tried once: avoid a loop
+                    try { sessionStorage.setItem('ama-reloaded-for', m[1]); } catch (e) {}
+                    const q = new URLSearchParams(location.search);
+                    q.set('v', m[1]);
+                    location.replace(location.pathname + '?' + q.toString() + location.hash);
+                }
+            } catch (e) { /* offline or blocked: keep the current page */ }
+            finally { updateChecking = false; }
+        }
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 
         // remember name/phone/address on this phone for next order
         function restoreCustomer() {
